@@ -98,7 +98,11 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
       await loadInspection();
       addToast('Defect successfully analyzed and saved!', 'success');
     } catch (err) {
-      addToast(err.message, 'error');
+      if (err.code === 'NON_PROPERTY_IMAGE' || err.status === 422) {
+        addToast(`🚫 ${err.message || 'Photo Rejected: Not related to home or property inspection.'}`, 'warning');
+      } else {
+        addToast(err.message || 'Defect analysis failed', 'error');
+      }
     }
     setAnalyzing(false);
   }

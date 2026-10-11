@@ -35,7 +35,11 @@ async function request(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(data.error || 'An unexpected error occurred');
+    const error = new Error(data.error || 'An unexpected error occurred');
+    error.status = response.status;
+    error.code = data.code;
+    error.details = data;
+    throw error;
   }
 
   return data;

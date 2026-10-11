@@ -163,6 +163,17 @@ router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req
     // Run AI analysis
     const analysis = await analyzeImage(base64Image, mimeType, comment);
 
+    // Gatekeeper Validation: Reject non-property images (cars, flowers, pets, celebrities, food, etc.)
+    if (analysis.is_property_related === false) {
+      return res.status(422).json({
+        error: `Photo Rejected: Not related to home or property inspection (${analysis.detected_subject || 'Non-property subject'}).`,
+        code: 'NON_PROPERTY_IMAGE',
+        detectedSubject: analysis.detected_subject || 'Non-property subject',
+        rejectionReason: analysis.rejection_reason || 'Mentis AI inspects building structures, architectural components, and home fixtures.',
+        recommendation: analysis.recommendation || 'Please upload a clear photograph of a building area, room, wall, ceiling, plumbing, electrical, or property structure component.'
+      });
+    }
+
     // Save to database
     const result = await pool.query(
       `INSERT INTO findings (
@@ -242,6 +253,7 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 30), async 
     const inspection = newInsp.rows[0];
 
     const findings = [];
+    const rejectedPhotos = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -254,6 +266,20 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 30), async 
       const base64Image = file.buffer.toString('base64');
       const mimeType = file.mimetype;
 
+      // Run AI vision analysis first
+      const analysis = await analyzeImage(base64Image, mimeType, fileComment);
+
+      // Gatekeeper Check: Skip and track non-property photos
+      if (analysis.is_property_related === false) {
+        rejectedPhotos.push({
+          index: i + 1,
+          name: file.originalname || `Photo #${i + 1}`,
+          detectedSubject: analysis.detected_subject || 'Non-property subject',
+          rejectionReason: analysis.rejection_reason || 'Image does not depict a building, home, or property component.'
+        });
+        continue;
+      }
+
       // Persist to disk if filesystem allows (on serverless, image is stored in DB base64)
       let imageUrl = null;
       try {
@@ -265,9 +291,6 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 30), async 
       } catch (_) {
         imageUrl = null;
       }
-
-      // Run AI vision analysis
-      const analysis = await analyzeImage(base64Image, mimeType, fileComment);
 
       // Save finding to database
       const findingRes = await pool.query(
@@ -302,9 +325,21 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 30), async 
       findings.push(findingRes.rows[0]);
     }
 
+    // If ALL photos were rejected, delete empty inspection container and return 422
+    if (findings.length === 0) {
+      await pool.query('DELETE FROM inspections WHERE id = $1', [inspection.id]);
+      return res.status(422).json({
+        error: 'All uploaded photos were rejected as non-property related.',
+        code: 'ALL_PHOTOS_NON_PROPERTY',
+        rejectedPhotos,
+        message: 'None of the uploaded images depicted building structures, rooms, or home components. Please upload photos of the property.'
+      });
+    }
+
     res.status(201).json({
       inspection,
-      findings
+      findings,
+      rejectedPhotos: rejectedPhotos.length > 0 ? rejectedPhotos : undefined
     });
   } catch (err) {
     next(err);
@@ -361,6 +396,17 @@ router.post('/:id/findings', aiAnalysisLimiter, upload.single('image'), async (r
 
     // Perform AI analysis
     const analysis = await analyzeImage(base64Image, mimeType, comment);
+
+    // Gatekeeper Validation: Reject non-property images (cars, flowers, pets, celebrities, food, etc.)
+    if (analysis.is_property_related === false) {
+      return res.status(422).json({
+        error: `Photo Rejected: Not related to home or property inspection (${analysis.detected_subject || 'Non-property subject'}).`,
+        code: 'NON_PROPERTY_IMAGE',
+        detectedSubject: analysis.detected_subject || 'Non-property subject',
+        rejectionReason: analysis.rejection_reason || 'Mentis AI inspects building structures, architectural components, and home fixtures.',
+        recommendation: analysis.recommendation || 'Please upload a clear photograph of a building area, room, wall, ceiling, plumbing, electrical, or property structure component.'
+      });
+    }
 
     // Save finding in database
     const result = await pool.query(

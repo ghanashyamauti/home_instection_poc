@@ -4538,6 +4538,249 @@ body {
   box-shadow: 0 4px 12px rgba(180, 131, 62, 0.35);
 }
 
+/* ========================================================================= */
+/* PROPERTY GATEKEEPER ALERT & REJECTION BANNERS */
+/* ========================================================================= */
+.rejection-alert-banner {
+  background: linear-gradient(135deg, #fff5f5 0%, #fffbf0 100%);
+  border: 1.5px solid #fecaca;
+  border-left: 6px solid #ef4444;
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.08);
+  margin-top: 1rem;
+}
+
+.rejection-alert-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  position: relative;
+}
+
+.rejection-icon-badge {
+  font-size: 1.75rem;
+  line-height: 1;
+  background: #fee2e2;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #fca5a5;
+}
+
+.rejection-header-text {
+  flex: 1;
+}
+
+.rejection-title {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #991b1b;
+  margin: 0 0 0.25rem 0;
+}
+
+.rejection-subtitle {
+  font-size: 0.88rem;
+  color: #7f1d1d;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.btn-text-dismiss {
+  background: transparent;
+  border: none;
+  font-size: 1.15rem;
+  color: #991b1b;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-text-dismiss:hover {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.rejection-items-list {
+  background: #ffffff;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rejection-list-label {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #c2410c;
+}
+
+.rejection-item-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  border-bottom: 1px dashed #f1f5f9;
+  padding-bottom: 0.4rem;
+}
+
+.rejection-item-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.rejection-item-tag {
+  font-weight: 700;
+  color: #1e293b;
+  background: #f1f5f9;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.rejection-item-detected {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.rejection-item-reason {
+  color: #64748b;
+  font-size: 0.78rem;
+  flex: 1;
+}
+
+.rejection-guidance-box {
+  background: rgba(254, 243, 199, 0.45);
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.82rem;
+  color: #78350f;
+  margin-top: 0.85rem;
+}
+
+.guidance-title {
+  font-weight: 800;
+  color: #92400e;
+  margin-bottom: 0.35rem;
+}
+
+.guidance-list {
+  margin: 0.25rem 0 0.5rem 1.25rem;
+  padding: 0;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.rejection-disclaimer {
+  display: block;
+  font-size: 0.76rem;
+  color: #a16207;
+  font-style: italic;
+  margin-top: 0.25rem;
+}
+
+/* Partial rejection banner inside results */
+.rejected-photos-banner {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef2f2 100%);
+  border: 1.5px solid #fde68a;
+  border-left: 5px solid #f59e0b;
+  border-radius: var(--radius-lg, 12px);
+  padding: 1rem 1.25rem;
+  box-shadow: 0 3px 10px rgba(245, 158, 11, 0.07);
+}
+
+.rejected-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rejected-banner-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.rejected-banner-title {
+  font-family: var(--font-heading);
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #92400e;
+  margin: 0 0 0.15rem 0;
+}
+
+.rejected-banner-sub {
+  font-size: 0.82rem;
+  color: #78350f;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.rejected-items-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.rejected-item-chip {
+  background: #ffffff;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.rejected-item-name {
+  font-weight: 700;
+  color: #334155;
+}
+
+.rejected-item-badge {
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+}
+
+.rejected-item-desc {
+  color: #64748b;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 640px) {
+  .rejection-alert-header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .rejection-item-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+  }
+  .rejected-items-grid {
+    flex-direction: column;
+  }
+}
+
+
 
 
 

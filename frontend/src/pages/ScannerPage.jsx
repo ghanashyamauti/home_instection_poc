@@ -51,6 +51,7 @@ export default function ScannerPage({ onNavigateToHistory }) {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
   const [batchResults, setBatchResults] = useState(null);
+  const [lastRejection, setLastRejection] = useState(null);
   const [savingRecId, setSavingRecId] = useState(null);
   const [annotatingFinding, setAnnotatingFinding] = useState(null);
   const [crlModalOpen, setCrlModalOpen] = useState(false);
@@ -117,6 +118,7 @@ export default function ScannerPage({ onNavigateToHistory }) {
 
       addToast(`Added ${files.length} photo${files.length > 1 ? 's' : ''} tagged [📍 ${currentRoom}${activeDirection ? ` • 🧭 ${activeDirection}` : ''}] • ⚡ Auto-optimized`, 'success');
       setBatchResults(null);
+      setLastRejection(null);
     } catch (err) {
       console.error('Guided photo compression error:', err);
     } finally {
@@ -180,18 +182,33 @@ export default function ScannerPage({ onNavigateToHistory }) {
       formData.append('title', reportTitle);
       if (propertyAddress.trim()) formData.append('location', propertyAddress.trim());
 
+      setLastRejection(null);
       setScanProgress(`AI vision models are diagnosing defects across all ${guidedQueue.length} photos...`);
 
       const response = await scanBatch(formData);
 
       setBatchResults(response);
+      if (response.rejectedPhotos && response.rejectedPhotos.length > 0) {
+        addToast(
+          `⚠️ ${response.rejectedPhotos.length} non-property photo(s) excluded (${response.rejectedPhotos.map((p) => p.detectedSubject).join(', ')}). Only home inspection photos were processed.`,
+          'warning'
+        );
+      }
       addToast(`Inspection scan complete! ${response.findings?.length || 0} defects documented for single report.`, 'success');
 
       setTimeout(() => {
         document.getElementById('batch-results-section')?.scrollIntoView({ behavior: 'smooth' });
       }, 150);
     } catch (err) {
-      addToast(err.message || 'Inspection scan failed. Please try again.', 'error');
+      if (err.code === 'ALL_PHOTOS_NON_PROPERTY' || err.status === 422) {
+        setLastRejection({
+          message: err.message,
+          rejectedPhotos: err.details?.rejectedPhotos || []
+        });
+        addToast(`🚫 ${err.message || 'Photos rejected: Please upload home and building inspection photos only.'}`, 'warning');
+      } else {
+        addToast(err.message || 'Inspection scan failed. Please try again.', 'error');
+      }
     }
 
     setScanning(false);
@@ -236,6 +253,7 @@ export default function ScannerPage({ onNavigateToHistory }) {
         ]);
       }
       setBatchResults(null);
+      setLastRejection(null);
     } catch (err) {
       console.error('Direct photo compression error:', err);
     } finally {
@@ -327,18 +345,33 @@ export default function ScannerPage({ onNavigateToHistory }) {
       if (globalCategory.trim()) formData.append('category', globalCategory.trim());
       if (globalDirection.trim()) formData.append('locationDirection', globalDirection.trim());
 
+      setLastRejection(null);
       setScanProgress(`Analyzing ${photoBatch.length} defect photo${photoBatch.length > 1 ? 's' : ''} with AI vision models...`);
 
       const response = await scanBatch(formData);
 
       setBatchResults(response);
+      if (response.rejectedPhotos && response.rejectedPhotos.length > 0) {
+        addToast(
+          `⚠️ ${response.rejectedPhotos.length} non-property photo(s) excluded (${response.rejectedPhotos.map((p) => p.detectedSubject).join(', ')}). Only home inspection photos were processed.`,
+          'warning'
+        );
+      }
       addToast(`AI Batch Scan Complete! (${response.findings?.length || 0} defects diagnosed)`, 'success');
 
       setTimeout(() => {
         document.getElementById('batch-results-section')?.scrollIntoView({ behavior: 'smooth' });
       }, 150);
     } catch (err) {
-      addToast(err.message || 'Batch scan failed. Please try again.', 'error');
+      if (err.code === 'ALL_PHOTOS_NON_PROPERTY' || err.status === 422) {
+        setLastRejection({
+          message: err.message,
+          rejectedPhotos: err.details?.rejectedPhotos || []
+        });
+        addToast(`🚫 ${err.message || 'Photos rejected: Please upload home and building inspection photos only.'}`, 'warning');
+      } else {
+        addToast(err.message || 'Batch scan failed. Please try again.', 'error');
+      }
     }
 
     setScanning(false);
@@ -560,6 +593,56 @@ export default function ScannerPage({ onNavigateToHistory }) {
           <span className="mode-badge">1-Click Fast Batch</span>
         </button>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PROPERTY GATEKEEPER ALERT BANNER (WHEN NON-PROPERTY PHOTOS ARE REJECTED)  */}
+      {/* ========================================================================= */}
+      {lastRejection && (
+        <div className="clean-card rejection-alert-banner mb-lg animate-fade-in">
+          <div className="rejection-alert-header">
+            <div className="rejection-icon-badge">🛡️</div>
+            <div className="rejection-header-text">
+              <h4 className="rejection-title">Property Inspection Gatekeeper Alert</h4>
+              <p className="rejection-subtitle">
+                {lastRejection.message || 'Uploaded photos were rejected because Mentis AI strictly evaluates residential and commercial building defects.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-text-dismiss"
+              onClick={() => setLastRejection(null)}
+              title="Dismiss alert"
+            >
+              ✕
+            </button>
+          </div>
+
+          {lastRejection.rejectedPhotos && lastRejection.rejectedPhotos.length > 0 && (
+            <div className="rejection-items-list mt-sm">
+              <div className="rejection-list-label">Filtered Non-Property Photos:</div>
+              {lastRejection.rejectedPhotos.map((rej, idx) => (
+                <div key={idx} className="rejection-item-row">
+                  <span className="rejection-item-tag">📷 {rej.name}</span>
+                  <span className="rejection-item-detected">Detected Subject: <strong>{rej.detectedSubject}</strong></span>
+                  <span className="rejection-item-reason">{rej.rejectionReason}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="rejection-guidance-box mt-sm">
+            <div className="guidance-title">💡 What Mentis AI Inspects:</div>
+            <ul className="guidance-list">
+              <li>Building structures (walls, ceilings, floors, foundations, roofs, basements)</li>
+              <li>Architectural components (doors, windows, siding, stairs, masonry, chimneys)</li>
+              <li>Home trade utilities (electrical panels/wiring, plumbing pipes/drains, HVAC units)</li>
+            </ul>
+            <span className="rejection-disclaimer">
+              * Non-property photos (vehicles, celebrities, portraits, pets, flowers, food, etc.) are strictly rejected to preserve professional inspection integrity.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* WORKFLOW 1: ROOM-BY-ROOM MULTI-PHOTO INSPECTOR MODE (SINGLE MASTER REPORT) */}
@@ -1147,6 +1230,32 @@ export default function ScannerPage({ onNavigateToHistory }) {
       {/* ========================================================================= */}
       {batchResults && batchResults.findings && (
         <div className="batch-results-section animate-fade-in" id="batch-results-section">
+          {/* Non-Property Rejected Photos Warning Banner */}
+          {batchResults.rejectedPhotos && batchResults.rejectedPhotos.length > 0 && (
+            <div className="clean-card rejected-photos-banner mb-md animate-fade-in">
+              <div className="rejected-banner-header">
+                <span className="rejected-banner-icon">🛡️</span>
+                <div>
+                  <h4 className="rejected-banner-title">
+                    Property Gatekeeper: {batchResults.rejectedPhotos.length} Non-Property Photo{batchResults.rejectedPhotos.length > 1 ? 's' : ''} Excluded
+                  </h4>
+                  <p className="rejected-banner-sub">
+                    Mentis AI filtered out photo{batchResults.rejectedPhotos.length > 1 ? 's that were' : ' that was'} not related to home or property inspection. Only valid building components were added to your report findings:
+                  </p>
+                </div>
+              </div>
+              <div className="rejected-items-grid mt-xs">
+                {batchResults.rejectedPhotos.map((rej, rIdx) => (
+                  <div key={rIdx} className="rejected-item-chip">
+                    <span className="rejected-item-name">📷 {rej.name}</span>
+                    <span className="rejected-item-badge">🚫 {rej.detectedSubject}</span>
+                    <span className="rejected-item-desc">{rej.rejectionReason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Summary Banner */}
           <div className="clean-card batch-summary-banner">
             <div className="batch-summary-content">

@@ -1,32 +1,62 @@
 import { config } from '../config/index.js';
 
-const SYSTEM_PROMPT = `You are an expert home inspector AI assistant. You analyze images of property areas and components to identify visible issues, defects, and damage.
+const SYSTEM_PROMPT = `You are Mentis AI, an expert Architectural, Structural & Property Inspection AI system.
+Your SOLE purpose is to inspect and evaluate residential and commercial building defects, architectural structures, and home property components.
 
-When analyzing an image, you must respond with ONLY a valid JSON object (no markdown, no code fences, no introductory remarks) in this exact format:
+=======================================================
+MANDATORY GATEKEEPER RULE — PROPERTY RELEVANCE VALIDATION
+=======================================================
+Before diagnosing any defect, you MUST FIRST evaluate whether this photo depicts a real property, building, architectural structure, or home component.
+
+ACCEPTED PROPERTY SUBJECTS:
+- Building interior & exterior (rooms, walls, ceilings, floors, roofs, foundations, basements, crawlspaces, attics)
+- Architectural elements (doors, windows, stairs, balconies, porches, siding, masonry, chimneys, gutters)
+- Home utility & trade components (electrical panels/wiring/fixtures, plumbing pipes/drains/fixtures, HVAC units, water heaters)
+- Structural elements (load-bearing beams, drywall, concrete slabs, framing, insulation)
+
+STRICT REJECTION CRITERIA:
+You MUST REJECT any photo that does NOT depict a property or architectural component, including but not limited to:
+- Motor vehicles (cars, trucks, sports cars, motorcycles, bicycles, boats, planes)
+- People (celebrities, portraits, selfies, human faces, crowds, fashion models)
+- Animals (pets, dogs, cats, wildlife, birds, farm animals, insects)
+- Flora & Fauna (flowers, potted decorative plants, bouquets, gardens, natural landscapes with no buildings)
+- Food & Dining (plates, meals, drinks, groceries)
+- Miscellaneous (consumer electronics, memes, documents, clothing, toys, sports equipment)
+
+OUTPUT FORMAT (Respond with ONLY a raw JSON object, no markdown code blocks, no introductory text):
+
+If REJECTED (Non-property image):
 {
-  "issue": "Brief name of the identified issue",
-  "category": "One of: Structural, Electrical, Plumbing, Surface, General Property Damage, Safety Hazard, Moisture/Water, Mold/Biological",
-  "severity": "One of: Low, Medium, High, Critical",
-  "description": "Detailed description of the identified issue, what you see in the image, and potential causes",
-  "recommendation": "Specific actionable recommendations for addressing the issue, including whether professional help is needed",
-  "confidence": A number between 0 and 100 representing your confidence in the assessment
+  "is_property_related": false,
+  "detected_subject": "Brief description of the non-property subject (e.g. 'automobile / motor vehicle', 'portrait of a person / celebrity', 'botanical flower / rose', 'domestic pet / dog', 'plate of food')",
+  "rejection_reason": "Clear explanation of why this photo cannot be accepted for an architectural property inspection audit.",
+  "issue": "Photo Rejected — Non-Property Subject Detected",
+  "category": "Invalid",
+  "severity": "Low",
+  "description": "The submitted photo does not contain a property structure, home component, or building element. Detected subject: [detected subject].",
+  "recommendation": "Please upload a clear photograph of a building area, room, wall, ceiling, plumbing, electrical, or property structure component.",
+  "confidence": 98
 }
 
-Initial defect categories to focus on:
-- Wall cracks (hairline, structural, settlement, diagonal)
-- Water leakage, moisture, dampness (water stains, efflorescence, drips)
-- Mold and mildew (visible growth, spore discoloration patterns)
-- Ceiling damage (sagging, water stains, cracks, peeling paint)
-- Flooring damage (cracks, warping, staining, wear, unevenness)
-- Window and door damage (frame damage, seal issues, glass cracks, drafts)
-- Visible electrical issues (exposed wiring, scorched outlets, improper connections)
-- General property damage (vandalism, neglect, weathering, physical impact)
+If ACCEPTED (Valid property / building inspection photo):
+{
+  "is_property_related": true,
+  "detected_subject": "Identified property component or area (e.g. 'drywall partition', 'bathroom plumbing', 'roof flashing', 'foundation wall')",
+  "issue": "Brief name of the identified defect or condition",
+  "category": "One of: Structural, Electrical, Plumbing, Surface, General Property Damage, Safety Hazard, Moisture/Water, Mold/Biological",
+  "severity": "One of: Low, Medium, High, Critical",
+  "description": "Detailed description of the visible defect, potential causes, and building impact",
+  "recommendation": "Specific actionable professional recommendation, including licensed trade contractor required",
+  "confidence": A number between 0 and 100
+}
 
-If the image does not appear to show any defects or issues, still provide your assessment noting the area appears to be in good condition, with category "General Property Damage", severity "Low", and confidence reflecting your certainty.
-
-Always consider the inspector's comments if provided, as they give valuable on-site context that may not be visible in the image.`;
+If the image is a valid property photo but exhibits NO damage or defects, set is_property_related to true, issue to "Satisfactory Condition / No Active Defect Observed", category to "General Property Damage", severity to "Low".`;
 
 async function callOpenRouter(model, base64Image, mimeType, inspectorComment) {
+  const promptInstruction = inspectorComment
+    ? `Inspector's on-site note: "${inspectorComment}"\n\nFirst, evaluate if this image is property-related. If it shows a non-property subject (e.g. car, vehicle, celebrity, person, flower, pet, animal, food, meme), REJECT it with is_property_related: false. Otherwise, analyze the property defects. Return ONLY the JSON object.`
+    : 'First, evaluate if this image is property-related. If it shows a non-property subject (e.g. car, vehicle, celebrity, person, flower, pet, animal, food, meme), REJECT it with is_property_related: false. Otherwise, analyze the property defects. Return ONLY the JSON object.';
+
   const userContent = [
     {
       type: 'image_url',
@@ -36,9 +66,7 @@ async function callOpenRouter(model, base64Image, mimeType, inspectorComment) {
     },
     {
       type: 'text',
-      text: inspectorComment
-        ? `Inspector's on-site comment: "${inspectorComment}"\n\nAnalyze this property image along with the inspector's comment. Identify any visible issues, defects, or damage. Return ONLY the JSON object.`
-        : 'Analyze this property image. Identify any visible issues, defects, or damage. Return ONLY the JSON object.'
+      text: promptInstruction
     }
   ];
 
@@ -110,6 +138,33 @@ function parseAIResponse(rawContent) {
 }
 
 function sanitizeParsed(parsed) {
+  // Check if AI explicitly rejected the photo as non-property related
+  const issueLower = (parsed.issue || '').toLowerCase();
+  const catLower = (parsed.category || '').toLowerCase();
+  const descLower = (parsed.description || '').toLowerCase();
+
+  const isExplicitlyRejected = parsed.is_property_related === false ||
+    catLower === 'invalid' ||
+    issueLower.includes('non-property') ||
+    issueLower.includes('not property') ||
+    issueLower.includes('rejected') ||
+    descLower.includes('not depict a home') ||
+    descLower.includes('does not contain a property');
+
+  if (isExplicitlyRejected) {
+    return {
+      is_property_related: false,
+      detected_subject: parsed.detected_subject || 'Non-property subject (vehicle, person, plant, or object)',
+      rejection_reason: parsed.rejection_reason || 'Photo is not related to home or property inspection. Mentis AI only evaluates residential and commercial building structures.',
+      issue: 'Invalid Photo — Non-Property Subject',
+      category: 'Invalid',
+      severity: 'Low',
+      description: parsed.description || 'This photo does not depict a home, building structure, or architectural component.',
+      recommendation: 'Please upload a clear photograph of a property structure, room area, wall, ceiling, plumbing, electrical, or building component.',
+      confidence: Math.round(parseFloat(parsed.confidence) || 95)
+    };
+  }
+
   const validCategories = [
     'Structural', 'Electrical', 'Plumbing', 'Surface',
     'General Property Damage', 'Safety Hazard', 'Moisture/Water', 'Mold/Biological'
@@ -130,17 +185,35 @@ function sanitizeParsed(parsed) {
   }
 
   return {
+    is_property_related: true,
+    detected_subject: parsed.detected_subject || 'Property Component',
     issue: parsed.issue || 'Identified Defect',
     category,
     severity,
-    description: parsed.description || 'Inspection finding captured from image analysis.',
+    description: parsed.description || 'Inspection finding captured from property image analysis.',
     recommendation: parsed.recommendation || 'Consult a certified contractor or licensed inspector for on-site evaluation.',
     confidence: Math.round(confidence)
   };
 }
 
 function fallbackTextExtraction(text) {
+  const textLower = (text || '').toLowerCase();
+  if (textLower.includes('car') || textLower.includes('vehicle') || textLower.includes('person') || textLower.includes('flower') || textLower.includes('celebrity')) {
+    return {
+      is_property_related: false,
+      detected_subject: 'Non-property subject',
+      rejection_reason: 'Photo is not related to home or property inspection.',
+      issue: 'Invalid Photo — Non-Property Subject',
+      category: 'Invalid',
+      severity: 'Low',
+      description: 'The uploaded image was determined to be non-property related.',
+      recommendation: 'Please upload a clear photograph of a property structure, room, or building component.',
+      confidence: 90
+    };
+  }
+
   return {
+    is_property_related: true,
     issue: 'Property Area Inspection',
     category: 'General Property Damage',
     severity: 'Medium',

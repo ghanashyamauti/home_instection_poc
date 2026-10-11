@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+let rawBase = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+if (rawBase.endsWith('/')) rawBase = rawBase.slice(0, -1);
+if (rawBase.startsWith('http') && !rawBase.endsWith('/api')) {
+  rawBase = `${rawBase}/api`;
+}
+const API_BASE = rawBase;
 
 function getHeaders(isFormData = false) {
   const token = localStorage.getItem('token');
@@ -119,6 +124,14 @@ export async function addFinding(inspectionId, formData) {
     method: 'POST',
     headers: getHeaders(true),
     body: formData
+  });
+}
+
+export async function updateFinding(inspectionId, findingId, data) {
+  return request(`/inspections/${inspectionId}/findings/${findingId}`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify(data)
   });
 }
 

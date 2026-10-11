@@ -1,33 +1,56 @@
 import React, { useState } from 'react';
+import { updateFinding } from '../services/api';
 
-export default function FindingCard({ finding, onDelete, showActions = true }) {
+export default function FindingCard({ finding, onDelete, onUpdate, showActions = true, onDownloadSinglePdf }) {
   const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [isEditingRec, setIsEditingRec] = useState(false);
+  const [inspectorRec, setInspectorRec] = useState(finding.inspector_recommendation || '');
+  const [isSavingRec, setIsSavingRec] = useState(false);
 
   const severityClass = `badge-severity-${finding.ai_severity?.toLowerCase() || 'medium'}`;
 
   const categoryIcons = {
+    'Roofing & Attic': '🏠',
+    'Exterior & Grounds': '🌳',
     'Structural': '🏛️',
+    'Structural & Foundation': '🏛️',
     'Electrical': '⚡',
+    'Electrical Systems': '⚡',
     'Plumbing': '🚰',
+    'Plumbing Systems': '🚰',
+    'HVAC': '❄️',
+    'HVAC (Heating & Cooling)': '❄️',
+    'Interior': '🛋️',
+    'Interior (Walls & Floors)': '🛋️',
     'Surface': '🎨',
     'Moisture/Water': '💧',
+    'Moisture & Mold Risk': '💧',
     'Mold/Biological': '🍄',
+    'Doors & Windows': '🚪',
+    'Built-in Appliances': '🍳',
     'Safety Hazard': '⚠️',
     'General Property Damage': '🏚️'
   };
 
   const categoryColors = {
     'Structural': '#8b5cf6',
+    'Structural & Foundation': '#8b5cf6',
     'Electrical': '#f59e0b',
+    'Electrical Systems': '#f59e0b',
     'Plumbing': '#0284c7',
+    'Plumbing Systems': '#0284c7',
+    'HVAC (Heating & Cooling)': '#06b6d4',
+    'Roofing & Attic': '#b4833e',
+    'Exterior & Grounds': '#10b981',
     'Surface': '#ec4899',
     'Moisture/Water': '#06b6d4',
+    'Moisture & Mold Risk': '#06b6d4',
     'Mold/Biological': '#84cc16',
     'Safety Hazard': '#ef4444',
     'General Property Damage': '#64748b'
   };
 
-  const category = finding.ai_category || 'General Property Damage';
+  const category = finding.category || finding.ai_category || 'General Property Damage';
   const categoryIcon = categoryIcons[category] || '🔍';
   const categoryColor = categoryColors[category] || '#64748b';
 
@@ -40,6 +63,23 @@ export default function FindingCard({ finding, onDelete, showActions = true }) {
   }
 
   const imageSrc = finding.image_url || (finding.image_data ? `data:${finding.image_mime_type || 'image/jpeg'};base64,${finding.image_data}` : null);
+
+  async function handleSaveRecommendation() {
+    setIsSavingRec(true);
+    try {
+      if (finding.inspection_id) {
+        await updateFinding(finding.inspection_id, finding.id, {
+          inspectorRecommendation: inspectorRec
+        });
+      }
+      finding.inspector_recommendation = inspectorRec;
+      if (onUpdate) onUpdate(finding);
+      setIsEditingRec(false);
+    } catch (err) {
+      alert('Failed to save recommendation: ' + err.message);
+    }
+    setIsSavingRec(false);
+  }
 
   return (
     <>
@@ -84,6 +124,12 @@ export default function FindingCard({ finding, onDelete, showActions = true }) {
                 📍 {finding.location_in_property}
               </span>
             )}
+
+            {finding.location_direction && !finding.location_in_property?.includes(finding.location_direction) && (
+              <span className="direction-pill" title={`Angle/Direction: ${finding.location_direction}`}>
+                🧭 {finding.location_direction}
+              </span>
+            )}
           </div>
 
           <h3 className="finding-card-title">{finding.ai_issue}</h3>
@@ -101,15 +147,89 @@ export default function FindingCard({ finding, onDelete, showActions = true }) {
             </div>
           )}
 
-          {/* AI Actionable Recommendation */}
-          <div className="recommendation-callout">
-            <div className="recommendation-header">
-              <span className="recommendation-icon">💡</span>
-              <span className="recommendation-title">Actionable Recommendation</span>
+          {/* 1. AI Actionable Recommendation */}
+          {finding.ai_recommendation && (
+            <div className="recommendation-callout ai-rec-callout">
+              <div className="recommendation-header">
+                <span className="recommendation-icon">🤖</span>
+                <span className="recommendation-title">AI Vision Recommendation</span>
+              </div>
+              <div className="recommendation-body">
+                {finding.ai_recommendation}
+              </div>
             </div>
-            <div className="recommendation-body">
-              {finding.ai_recommendation}
+          )}
+
+          {/* 2. Inspector's Professional Recommendation (Dual Card) */}
+          <div className="recommendation-callout inspector-rec-callout mt-xs">
+            <div className="recommendation-header flex-between">
+              <div className="flex-center gap-xs">
+                <span className="recommendation-icon">👷</span>
+                <span className="recommendation-title">Inspector's Professional Recommendation</span>
+              </div>
+              {!isEditingRec && showActions && (
+                <button
+                  type="button"
+                  className="btn-text-subtle btn-xs"
+                  onClick={() => setIsEditingRec(true)}
+                  title="Edit inspector recommendation"
+                >
+                  ✏️ {inspectorRec ? 'Edit' : '+ Add Note'}
+                </button>
+              )}
             </div>
+
+            {isEditingRec ? (
+              <div className="inline-rec-editor mt-xs animate-fade-in">
+                <textarea
+                  className="form-textarea inline-rec-textarea"
+                  rows="2"
+                  value={inspectorRec}
+                  onChange={(e) => setInspectorRec(e.target.value)}
+                  placeholder="e.g. Recommend evaluation and repair by licensed electrician prior to closing..."
+                  autoFocus
+                />
+                <div className="inline-editor-actions mt-xs">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-xs"
+                    disabled={isSavingRec}
+                    onClick={handleSaveRecommendation}
+                  >
+                    {isSavingRec ? 'Saving...' : '✓ Save Recommendation'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs"
+                    onClick={() => {
+                      setInspectorRec(finding.inspector_recommendation || '');
+                      setIsEditingRec(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="recommendation-body inspector-rec-text">
+                {inspectorRec ? (
+                  inspectorRec
+                ) : (
+                  <span className="text-muted-italic">
+                    No custom inspector recommendation added.{' '}
+                    {showActions && (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        onClick={() => setIsEditingRec(true)}
+                      >
+                        Add one now
+                      </button>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -138,6 +258,17 @@ export default function FindingCard({ finding, onDelete, showActions = true }) {
               <span className="model-tag" title={`Analyzed with ${finding.ai_model_used}`}>
                 ⚡ {finding.ai_model_used.split('/')[1] || finding.ai_model_used}
               </span>
+            )}
+
+            {onDownloadSinglePdf && (
+              <button
+                className="btn btn-secondary btn-xs"
+                onClick={() => onDownloadSinglePdf(finding)}
+                title="Download single PDF for this finding"
+                style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+              >
+                📄 Single PDF
+              </button>
             )}
 
             {showActions && onDelete && (

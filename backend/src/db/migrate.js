@@ -54,8 +54,13 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_findings_inspection_id ON findings(inspection_id);
       CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(ai_severity);
       ALTER TABLE findings ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE findings ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+      ALTER TABLE findings ADD COLUMN IF NOT EXISTS location_direction VARCHAR(100);
+      ALTER TABLE findings ADD COLUMN IF NOT EXISTS inspector_recommendation TEXT;
+      ALTER TABLE findings ADD COLUMN IF NOT EXISTS annotated_image_data TEXT;
+      ALTER TABLE findings ADD COLUMN IF NOT EXISTS annotated_image_url TEXT;
     `);
-    console.log('✅ Findings table + indexes ready');
+    console.log('✅ Findings table + indexes and annotation columns ready');
 
     console.log('🎉 All migrations and database optimizations completed successfully!');
   } catch (err) {

@@ -12,10 +12,12 @@ import { analyzeImage } from '../services/aiService.js';
 
 const router = express.Router();
 
-// Ensure upload directory exists
-if (!fs.existsSync(config.upload.dir)) {
-  fs.mkdirSync(config.upload.dir, { recursive: true });
-}
+// Ensure upload directory exists (skipped safely on read-only serverless runtimes)
+try {
+  if (!fs.existsSync(config.upload.dir)) {
+    fs.mkdirSync(config.upload.dir, { recursive: true });
+  }
+} catch (_) {}
 
 // Allowed image formats
 const ALLOWED_MIME_TYPES = new Set([
@@ -98,7 +100,8 @@ router.get('/:id', async (req, res, next) => {
       `SELECT id, inspection_id, image_url, image_data, image_mime_type, 
               inspector_comment, ai_issue, ai_category, ai_severity, 
               ai_description, ai_recommendation, ai_confidence, ai_model_used, 
-              location_in_property, created_at
+              location_in_property, category, location_direction, inspector_recommendation, 
+              annotated_image_data, annotated_image_url, created_at
        FROM findings 
        WHERE inspection_id = $1 
        ORDER BY created_at ASC`,
@@ -117,7 +120,7 @@ router.get('/:id', async (req, res, next) => {
 // Quick 1-click scan without creating manual project first
 router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req, res, next) => {
   try {
-    const { comment, location, title } = req.body;
+    const { comment, location, title, category, locationDirection, inspectorRecommendation } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ error: 'An image file is required.', code: 'MISSING_FILE' });
@@ -145,12 +148,17 @@ router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req
     const base64Image = req.file.buffer.toString('base64');
     const mimeType = req.file.mimetype;
 
-    // Save image to disk
-    const ext = path.extname(req.file.originalname) || '.jpg';
-    const filename = `${crypto.randomBytes(16).toString('hex')}${ext}`;
-    const filePath = path.join(config.upload.dir, filename);
-    await fs.promises.writeFile(filePath, req.file.buffer);
-    const imageUrl = `/uploads/${filename}`;
+    // Persist image to disk if filesystem allows (on serverless, image is stored in DB base64)
+    let imageUrl = null;
+    try {
+      const ext = path.extname(req.file.originalname) || '.jpg';
+      const filename = `${crypto.randomBytes(16).toString('hex')}${ext}`;
+      const filePath = path.join(config.upload.dir, filename);
+      await fs.promises.writeFile(filePath, req.file.buffer);
+      imageUrl = `/uploads/${filename}`;
+    } catch (_) {
+      imageUrl = null;
+    }
 
     // Run AI analysis
     const analysis = await analyzeImage(base64Image, mimeType, comment);
@@ -160,9 +168,10 @@ router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req
       `INSERT INTO findings (
          inspection_id, image_url, image_data, image_mime_type, inspector_comment, 
          ai_issue, ai_category, ai_severity, ai_description, ai_recommendation, 
-         ai_confidence, ai_model_used, location_in_property
+         ai_confidence, ai_model_used, location_in_property,
+         category, location_direction, inspector_recommendation
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         inspectionId,
@@ -177,7 +186,10 @@ router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req
         analysis.recommendation,
         analysis.confidence,
         analysis.model_used,
-        location?.trim() || null
+        location?.trim() || null,
+        category?.trim() || null,
+        locationDirection?.trim() || null,
+        inspectorRecommendation?.trim() || null
       ]
     );
 
@@ -187,23 +199,35 @@ router.post('/scan-quick', aiAnalysisLimiter, upload.single('image'), async (req
   }
 });
 
-// Multi-photo batch scan endpoint (processes up to 10 photos in one inspection session)
-router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 10), async (req, res, next) => {
+// Multi-photo batch scan endpoint (processes up to 30 photos in one inspection session)
+router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 30), async (req, res, next) => {
   try {
     const files = req.files;
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'At least one image file is required for batch scan.', code: 'MISSING_FILES' });
     }
 
-    const { comment, location, title } = req.body;
+    const { comment, location, title, category, locationDirection, inspectorRecommendation } = req.body;
     let itemLocations = [];
     let itemComments = [];
+    let itemCategories = [];
+    let itemDirections = [];
+    let itemRecommendations = [];
     try {
       if (req.body.itemLocations) {
         itemLocations = typeof req.body.itemLocations === 'string' ? JSON.parse(req.body.itemLocations) : req.body.itemLocations;
       }
       if (req.body.itemComments) {
         itemComments = typeof req.body.itemComments === 'string' ? JSON.parse(req.body.itemComments) : req.body.itemComments;
+      }
+      if (req.body.itemCategories) {
+        itemCategories = typeof req.body.itemCategories === 'string' ? JSON.parse(req.body.itemCategories) : req.body.itemCategories;
+      }
+      if (req.body.itemDirections) {
+        itemDirections = typeof req.body.itemDirections === 'string' ? JSON.parse(req.body.itemDirections) : req.body.itemDirections;
+      }
+      if (req.body.itemRecommendations) {
+        itemRecommendations = typeof req.body.itemRecommendations === 'string' ? JSON.parse(req.body.itemRecommendations) : req.body.itemRecommendations;
       }
     } catch (_) {}
 
@@ -223,16 +247,24 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 10), async 
       const file = files[i];
       const fileComment = (Array.isArray(itemComments) && itemComments[i]) ? itemComments[i] : (comment?.trim() || '');
       const fileLocation = (Array.isArray(itemLocations) && itemLocations[i]) ? itemLocations[i] : (location?.trim() || '');
+      const fileCategory = (Array.isArray(itemCategories) && itemCategories[i]) ? itemCategories[i] : (category?.trim() || null);
+      const fileDirection = (Array.isArray(itemDirections) && itemDirections[i]) ? itemDirections[i] : (locationDirection?.trim() || null);
+      const fileRecommendation = (Array.isArray(itemRecommendations) && itemRecommendations[i]) ? itemRecommendations[i] : (inspectorRecommendation?.trim() || null);
 
       const base64Image = file.buffer.toString('base64');
       const mimeType = file.mimetype;
 
-      // Persist to disk
-      const ext = path.extname(file.originalname) || '.jpg';
-      const filename = `${crypto.randomBytes(16).toString('hex')}${ext}`;
-      const filePath = path.join(config.upload.dir, filename);
-      await fs.promises.writeFile(filePath, file.buffer);
-      const imageUrl = `/uploads/${filename}`;
+      // Persist to disk if filesystem allows (on serverless, image is stored in DB base64)
+      let imageUrl = null;
+      try {
+        const ext = path.extname(file.originalname) || '.jpg';
+        const filename = `${crypto.randomBytes(16).toString('hex')}${ext}`;
+        const filePath = path.join(config.upload.dir, filename);
+        await fs.promises.writeFile(filePath, file.buffer);
+        imageUrl = `/uploads/${filename}`;
+      } catch (_) {
+        imageUrl = null;
+      }
 
       // Run AI vision analysis
       const analysis = await analyzeImage(base64Image, mimeType, fileComment);
@@ -242,9 +274,10 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 10), async 
         `INSERT INTO findings (
            inspection_id, image_url, image_data, image_mime_type, inspector_comment, 
            ai_issue, ai_category, ai_severity, ai_description, ai_recommendation, 
-           ai_confidence, ai_model_used, location_in_property
+           ai_confidence, ai_model_used, location_in_property,
+           category, location_direction, inspector_recommendation
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING *`,
         [
           inspection.id,
@@ -259,7 +292,10 @@ router.post('/scan-batch', aiAnalysisLimiter, upload.array('images', 10), async 
           analysis.recommendation,
           analysis.confidence,
           analysis.model_used,
-          fileLocation?.trim() || null
+          fileLocation?.trim() || null,
+          fileCategory?.trim() || null,
+          fileDirection?.trim() || null,
+          fileRecommendation?.trim() || null
         ]
       );
 
@@ -297,7 +333,7 @@ router.get('/findings/recent', async (req, res, next) => {
 router.post('/:id/findings', aiAnalysisLimiter, upload.single('image'), async (req, res, next) => {
   try {
     const inspectionId = req.params.id;
-    const { comment, location } = req.body;
+    const { comment, location, category, locationDirection, inspectorRecommendation } = req.body;
 
     // Verify inspection ownership
     const inspection = await pool.query(
@@ -331,9 +367,10 @@ router.post('/:id/findings', aiAnalysisLimiter, upload.single('image'), async (r
       `INSERT INTO findings (
          inspection_id, image_url, image_data, image_mime_type, inspector_comment, 
          ai_issue, ai_category, ai_severity, ai_description, ai_recommendation, 
-         ai_confidence, ai_model_used, location_in_property
+         ai_confidence, ai_model_used, location_in_property,
+         category, location_direction, inspector_recommendation
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         inspectionId,
@@ -348,11 +385,87 @@ router.post('/:id/findings', aiAnalysisLimiter, upload.single('image'), async (r
         analysis.recommendation,
         analysis.confidence,
         analysis.model_used,
-        location?.trim() || null
+        location?.trim() || null,
+        category?.trim() || null,
+        locationDirection?.trim() || null,
+        inspectorRecommendation?.trim() || null
       ]
     );
 
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update finding (inspector recommendation, note, category, location, direction)
+router.patch('/:inspectionId/findings/:findingId', async (req, res, next) => {
+  try {
+    const { inspectionId, findingId } = req.params;
+    const { inspectorRecommendation, comment, category, location, locationDirection } = req.body;
+
+    // Verify inspection ownership
+    const inspection = await pool.query(
+      'SELECT id FROM inspections WHERE id = $1 AND user_id = $2',
+      [inspectionId, req.userId]
+    );
+
+    if (inspection.rows.length === 0) {
+      return res.status(404).json({ error: 'Inspection not found or unauthorized.', code: 'NOT_FOUND' });
+    }
+
+    const updates = [];
+    const values = [];
+    let counter = 1;
+
+    if (inspectorRecommendation !== undefined) {
+      updates.push(`inspector_recommendation = $${counter++}`);
+      values.push(inspectorRecommendation?.trim() || null);
+    }
+    if (comment !== undefined) {
+      updates.push(`inspector_comment = $${counter++}`);
+      values.push(comment?.trim() || null);
+    }
+    if (category !== undefined) {
+      updates.push(`category = $${counter++}`);
+      values.push(category?.trim() || null);
+    }
+    if (location !== undefined) {
+      updates.push(`location_in_property = $${counter++}`);
+      values.push(location?.trim() || null);
+    }
+    if (locationDirection !== undefined) {
+      updates.push(`location_direction = $${counter++}`);
+      values.push(locationDirection?.trim() || null);
+    }
+    if (req.body.annotatedImageData !== undefined) {
+      updates.push(`annotated_image_data = $${counter++}`);
+      values.push(req.body.annotatedImageData || null);
+    }
+    if (req.body.annotatedImageUrl !== undefined) {
+      updates.push(`annotated_image_url = $${counter++}`);
+      values.push(req.body.annotatedImageUrl || null);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields provided for update.' });
+    }
+
+    values.push(findingId, inspectionId);
+    const query = `
+      UPDATE findings 
+      SET ${updates.join(', ')} 
+      WHERE id = $${counter++} AND inspection_id = $${counter++} 
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Finding not found.', code: 'NOT_FOUND' });
+    }
+
+    res.json(result.rows[0]);
   } catch (err) {
     next(err);
   }

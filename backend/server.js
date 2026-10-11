@@ -20,16 +20,30 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// Strictly configured CORS
+// Deployment & Mobile-Resilient CORS
 const allowedOrigins = config.cors.origin.split(',').map(s => s.trim());
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, server-to-server) or in allowed list
-    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS blocked for origin: ${origin}`));
+    // Allow requests with no origin (native mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+
+    // Wildcard allowed
+    if (allowedOrigins.includes('*')) return callback(null, true);
+
+    // Explicit origin match
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // Mobile apps / WebViews / Local testing
+    if (origin.startsWith('capacitor://') || origin.startsWith('ionic://') || origin.startsWith('http://localhost')) {
+      return callback(null, true);
     }
+
+    // In non-production, permit all origins
+    if (config.nodeEnv !== 'production') {
+      return callback(null, true);
+    }
+
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -68,9 +82,14 @@ app.use('/api/*', (req, res) => {
 // Centralized Error Handling
 app.use(errorHandler);
 
-// Start Server
-app.listen(config.port, () => {
-  console.log(`🏛️ Mentis Backend running on port ${config.port}`);
-  console.log(`📡 Environment: ${config.nodeEnv}`);
-  console.log(`🔒 Allowed CORS Origins: ${config.cors.origin}`);
-});
+// Start Server (only when executed directly, bypassed when imported by Vercel serverless)
+if (process.env.VERCEL !== '1') {
+  app.listen(config.port, () => {
+    console.log(`🏛️ Mentis Backend running on port ${config.port}`);
+    console.log(`📡 Environment: ${config.nodeEnv}`);
+    console.log(`🔒 Allowed CORS Origins: ${config.cors.origin}`);
+  });
+}
+
+export default app;
+

@@ -1,0 +1,24 @@
+{
+  "short_name": "Mentis",
+  "name": "Mentis — Architectural & Property Inspection AI",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/mentis-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#1c1917",
+  "theme_color": "#1c1917",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/"
+}

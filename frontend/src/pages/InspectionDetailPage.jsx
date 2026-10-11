@@ -3,6 +3,7 @@ import { getInspection, addFinding, deleteFinding, updateInspectionStatus } from
 import { useToast } from '../context/ToastContext';
 import ImageUpload from '../components/ImageUpload';
 import FindingCard from '../components/FindingCard';
+import { CategorySelector, LocationDirectionSelector } from '../components/InspectorFieldControls';
 import { generatePdfReport } from '../services/pdfGenerator';
 
 export default function InspectionDetailPage({ inspectionId, onNavigate }) {
@@ -21,6 +22,10 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
   const [imagePreview, setImagePreview] = useState(null);
   const [comment, setComment] = useState('');
   const [location, setLocation] = useState('');
+  const [category, setCategory] = useState('');
+  const [customCategory, setCustomCategory] = useState('');
+  const [locationDirection, setLocationDirection] = useState('');
+  const [inspectorRecommendation, setInspectorRecommendation] = useState('');
 
   useEffect(() => {
     loadInspection();
@@ -70,6 +75,11 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
       formData.append('image', imageFile);
       if (comment.trim()) formData.append('comment', comment);
       if (location.trim()) formData.append('location', location);
+      
+      const finalCategory = category === 'Other' ? (customCategory.trim() || 'Other') : category;
+      if (finalCategory) formData.append('category', finalCategory);
+      if (locationDirection.trim()) formData.append('locationDirection', locationDirection);
+      if (inspectorRecommendation.trim()) formData.append('inspectorRecommendation', inspectorRecommendation);
 
       await addFinding(inspectionId, formData);
 
@@ -78,6 +88,10 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
       setImagePreview(null);
       setComment('');
       setLocation('');
+      setCategory('');
+      setCustomCategory('');
+      setLocationDirection('');
+      setInspectorRecommendation('');
       setShowAddForm(false);
 
       // Reload inspection
@@ -110,16 +124,39 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
     }
   }
 
-  function handleDownloadPdf() {
+  async function handleDownloadPdf() {
     if (!inspection || !inspection.findings?.length) {
       addToast('No findings to include in PDF report', 'error');
       return;
     }
     try {
-      generatePdfReport(inspection);
-      addToast('Inspection PDF downloaded successfully!', 'success');
+      addToast(`Generating Master Audit PDF with all ${inspection.findings.length} photos...`, 'info');
+      await generatePdfReport(inspection);
+      addToast('Complete Inspection Master PDF downloaded successfully!', 'success');
     } catch (err) {
-      addToast('Failed to generate PDF', 'error');
+      addToast('Failed to generate PDF: ' + err.message, 'error');
+    }
+  }
+
+  async function handleDownloadSingleFindingPdf(finding) {
+    try {
+      addToast(`Generating single PDF for "${finding.ai_issue}"...`, 'info');
+      const locationText = finding.location_in_property 
+        ? `${finding.location_in_property}${finding.location_direction ? ` [${finding.location_direction}]` : ''}`
+        : (inspection?.property_address || 'Property Inspection');
+
+      const reportData = {
+        title: finding.ai_issue || 'Property Defect Report',
+        property_address: locationText,
+        property_type: inspection?.property_type || 'Residential',
+        client_name: inspection?.client_name,
+        created_at: finding.created_at || inspection?.created_at || new Date().toISOString(),
+        findings: [finding]
+      };
+      await generatePdfReport(reportData);
+      addToast(`Downloaded single PDF for "${finding.ai_issue}"`, 'success');
+    } catch (err) {
+      addToast('Failed to generate single PDF: ' + err.message, 'error');
     }
   }
 
@@ -171,8 +208,11 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
     const matchesSearch = !q ||
       f.ai_issue?.toLowerCase().includes(q) ||
       f.ai_category?.toLowerCase().includes(q) ||
+      f.category?.toLowerCase().includes(q) ||
       f.location_in_property?.toLowerCase().includes(q) ||
-      f.inspector_comment?.toLowerCase().includes(q);
+      f.location_direction?.toLowerCase().includes(q) ||
+      f.inspector_comment?.toLowerCase().includes(q) ||
+      f.inspector_recommendation?.toLowerCase().includes(q);
     return matchesSev && matchesSearch;
   });
 
@@ -253,8 +293,9 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
             onClick={handleDownloadPdf}
             id="btn-download-pdf"
             disabled={findings.length === 0}
+            title="Download 1 consolidated Master PDF containing all photos and findings"
           >
-            📄 Export PDF Report
+            📄 Download Master PDF ({findings.length} Findings)
           </button>
           {inspection.status === 'in_progress' && (
             <button
@@ -325,15 +366,26 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
           <div className="card-glass-header">
             <div>
               <h3 className="card-glass-title">📸 New Property Defect Evidence</h3>
-              <p className="card-glass-subtitle">Upload or snap a photo of the area. Add inspector notes for contextual AI diagnosis.</p>
+              <p className="card-glass-subtitle">Upload or snap a photo of the area. Add optional categories, location tags, and professional notes.</p>
             </div>
             <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>✕</button>
           </div>
 
           <form onSubmit={handleAddFinding} className="add-finding-form">
+            {/* Step 1: System / Category Selector */}
             <div className="form-group">
+              <CategorySelector
+                category={category}
+                onCategoryChange={setCategory}
+                customCategory={customCategory}
+                onCustomCategoryChange={setCustomCategory}
+              />
+            </div>
+
+            {/* Step 2: Property Image Evidence */}
+            <div className="form-group mt-md">
               <label className="form-label">
-                Property Image Evidence <span className="required">*</span>
+                📸 2. Property Image Evidence <span className="required">*</span>
               </label>
               <ImageUpload
                 onImageSelect={handleImageSelect}
@@ -343,24 +395,22 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
               />
             </div>
 
-            <div className="form-row">
-              <div className="form-group flex-1">
-                <label className="form-label">Location in Property</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Master Bedroom — East Wall near Window"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  id="input-finding-location"
-                />
-              </div>
+            {/* Step 3: Location & Angle / Direction Tags */}
+            <div className="form-group mt-md">
+              <LocationDirectionSelector
+                location={location}
+                onLocationChange={setLocation}
+                locationDirection={locationDirection}
+                onLocationDirectionChange={setLocationDirection}
+                stepNumber="3"
+              />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Inspector On-Site Observations</label>
+            {/* Step 4: On-Site Observations */}
+            <div className="form-group mt-md">
+              <label className="form-label">📝 4. Inspector On-Site Observations / Notes</label>
               <textarea
-                className="form-textarea"
+                className="form-textarea clean-textarea field-notes-textarea"
                 rows="3"
                 placeholder="Describe what you hear, touch, or observe on-site (e.g., 'Damp drywall, active drip, settlement hairline crack along door header')..."
                 value={comment}
@@ -389,7 +439,7 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
                 {analyzing ? (
                   <><div className="spinner-sm"></div> Analyzing with Vision AI...</>
                 ) : (
-                  '🤖 Run AI Inspection & Categorize'
+                  '🤖 Run AI Inspection & Save'
                 )}
               </button>
             </div>
@@ -455,6 +505,8 @@ export default function InspectionDetailPage({ inspectionId, onNavigate }) {
               <FindingCard
                 finding={finding}
                 onDelete={handleDeleteFinding}
+                onUpdate={loadInspection}
+                onDownloadSinglePdf={handleDownloadSingleFindingPdf}
               />
             </div>
           ))}
